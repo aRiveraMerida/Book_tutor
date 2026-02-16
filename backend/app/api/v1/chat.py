@@ -1,6 +1,6 @@
 """
 Chat endpoints for RAG-based Q&A.
-Accessible by all authenticated users.
+Public access - no authentication required.
 """
 import json
 from typing import AsyncGenerator
@@ -9,14 +9,13 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.core.security import RequireUser
 from app.services.rag_service import rag_service
 
 router = APIRouter()
 
 
 class ChatRequest(BaseModel):
-    question: str = Field(..., min_length=3, max_length=1000)
+    question: str = Field(..., min_length=3, max_length=2000)
 
 
 class SourceResponse(BaseModel):
@@ -36,7 +35,7 @@ class ChatResponse(BaseModel):
 
 
 @router.post("/{slug}/ask", response_model=ChatResponse)
-async def ask_question(slug: str, request: ChatRequest, current_user: RequireUser):
+async def ask_question(slug: str, request: ChatRequest):
     """
     Ask a question about an asignatura's content.
 
@@ -78,7 +77,7 @@ async def ask_question(slug: str, request: ChatRequest, current_user: RequireUse
 
 
 @router.post("/{slug}/stream")
-async def stream_answer(slug: str, request: ChatRequest, current_user: RequireUser):
+async def stream_answer(slug: str, request: ChatRequest):
     """
     Stream answer tokens for a question.
 

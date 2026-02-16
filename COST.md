@@ -1,314 +1,279 @@
 # 💰 Análisis de Costes - BookTutor
 
-Este documento analiza los costes asociados a la operación de BookTutor, desglosando los gastos de infraestructura, procesamiento RAG y peticiones al tutor IA.
+> **Versión**: 2.0  
+> **Última actualización**: Febrero 2026  
+> **Escenario principal**: 2,000 alumnos, 20 consultas/día, 1 año
 
 ---
 
-## 📊 Resumen Ejecutivo
+## 📋 Resumen Ejecutivo
 
-| Escenario | Coste Mensual | Coste por Petición |
-|-----------|---------------|-------------------|
-| **Self-hosted (Ollama local)** | ~€50-150 | ~€0.00 |
-| **Cloud (OpenAI GPT-4o-mini)** | Variable | ~€0.002-0.01 |
-| **Híbrido (Cloud + Local)** | ~€100-300 | ~€0.001-0.005 |
+### Modelo de Funcionamiento
+
+BookTutor opera en **dos fases completamente separadas**:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  FASE 1: INGESTIÓN (Una sola vez)                               │
+│  ─────────────────────────────────                              │
+│  • La realizamos NOSOTROS (equipo técnico)                      │
+│  • Subimos documentos .md → Se procesan → Se guardan en Qdrant  │
+│  • Coste: €0 (proceso local)                                    │
+│  • Tiempo: ~5-10 minutos por asignatura                         │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+                    [Datos en Qdrant]
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  FASE 2: USO (Diario - Alumnos)                                 │
+│  ──────────────────────────────                                 │
+│  • Los alumnos hacen preguntas al chatbot                       │
+│  • Se busca en Qdrant → Ollama genera respuesta                 │
+│  • Coste: Solo servidor (sin APIs externas)                     │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Coste Total Anual (Escenario Real)
+
+| Concepto | Coste |
+|----------|-------|
+| **Servidor GPU dedicado** | **€2,160/año** |
+| **Almacenamiento adicional** | €120/año |
+| **Dominio + SSL** | €15/año |
+| **APIs externas** | €0/año |
+| **TOTAL ANUAL** | **~€2,300/año** |
+
+| Métrica | Valor |
+|---------|-------|
+| Coste por alumno/año | **€1.15** |
+| Coste por consulta | **€0.00016** |
 
 ---
 
-## 🏗️ Costes de Infraestructura
+## 🎯 Escenario: 2,000 Alumnos - 1 Año Completo
 
-### Opción 1: Self-Hosted (Recomendado para Educación)
+### Datos de Uso
 
-#### Servidor sin GPU
+```
+Alumnos totales:           2,000
+Consultas por alumno/día:  20
+Días lectivos/año:         180 (aproximado)
+Horas pico/día:            8 horas (09:00 - 17:00)
+```
 
-| Proveedor | Especificaciones | Coste Mensual |
-|-----------|-----------------|---------------|
-| **Hetzner** | CPX41 (8 vCPU, 16GB RAM) | ~€30/mes |
-| **DigitalOcean** | Premium (8 vCPU, 16GB) | ~€96/mes |
-| **OVH** | B2-30 (8 vCPU, 30GB) | ~€50/mes |
+### Cálculo de Volumen
 
-> ⚠️ Sin GPU, cada petición al tutor tarda ~30-60 segundos con qwen3:8b
+```
+Consultas diarias:     2,000 × 20 = 40,000 consultas/día
+Consultas anuales:     40,000 × 180 = 7,200,000 consultas/año
+Consultas por hora:    40,000 ÷ 8 = 5,000 consultas/hora (pico)
+Consultas por minuto:  5,000 ÷ 60 = ~83 consultas/minuto (pico)
+```
 
-#### Servidor con GPU (Recomendado)
+### Requisitos Técnicos
 
-| Proveedor | GPU | Coste Mensual |
-|-----------|-----|---------------|
-| **Hetzner** | - | No disponible |
-| **AWS** | g4dn.xlarge (T4) | ~€400/mes |
-| **Lambda Labs** | A10 (24GB) | ~€300/mes |
-| **Vast.ai** | RTX 4090 | ~€150-250/mes |
+Para manejar 83 consultas/minuto con tiempo de respuesta aceptable (2-5s):
 
-> ✅ Con GPU, cada petición tarda ~2-5 segundos
-
-### Opción 2: Servicios Cloud (Pago por Uso)
-
-#### Qdrant Cloud
-
-| Plan | Capacidad | Coste |
-|------|-----------|-------|
-| Free | 1GB, 1 nodo | €0/mes |
-| Starter | 4GB | ~€25/mes |
-| Production | 20GB+ | ~€100+/mes |
-
-Para BookTutor típico (10 asignaturas, 100 documentos): **~€0-25/mes**
+| Requisito | Especificación |
+|-----------|----------------|
+| **GPU** | NVIDIA RTX 4000 o superior |
+| **CPU** | 8+ cores |
+| **RAM** | 32 GB |
+| **SSD** | 100 GB NVMe |
+| **Concurrencia** | ~20-40 consultas simultáneas |
 
 ---
 
-## 🧠 Costes de Procesamiento RAG
+## 💰 Desglose de Costes Detallado
 
-El pipeline RAG tiene dos fases con costes diferentes:
+### Fase 1: Ingestión (Coste Único)
 
-### Fase 1: Indexación (Embeddings)
+| Concepto | Coste | Notas |
+|----------|-------|-------|
+| Procesamiento documentos | €0 | Local con Ollama |
+| Embeddings (bge-m3) | €0 | Local con Ollama |
+| Almacenamiento Qdrant | €0 | Incluido en servidor |
+| **TOTAL INGESTIÓN** | **€0** | |
 
-Se ejecuta **una vez** al añadir/actualizar documentos.
-
-#### Con Ollama (bge-m3) - GRATIS
-
+**Proceso de ingestión:**
 ```
-Coste = €0 (local)
-Tiempo = ~0.5s por chunk
-```
-
-#### Con OpenAI (text-embedding-3-small)
-
-```
-Precio: $0.00002 / 1K tokens
-
-Ejemplo para 1 asignatura:
-- 10 documentos × 20 chunks × 300 tokens/chunk = 60,000 tokens
-- Coste = 60,000 / 1,000 × $0.00002 = $0.0012 ≈ €0.001
+1. Colocamos carpetas con .md en backend/docs/
+2. Reiniciamos backend
+3. Auto-ingest procesa y genera embeddings
+4. Datos guardados en Qdrant (persistente)
+5. ¡Listo! No hay que repetir
 ```
 
-**Coste típico de indexar todo el contenido**: €0.01-0.10 (una vez)
+### Fase 2: Uso Anual
 
-### Fase 2: Búsqueda (Query)
+#### Opción Recomendada: Servidor GPU Dedicado
 
-Se ejecuta en **cada pregunta** del usuario.
+| Componente | Proveedor | Especificación | €/mes | €/año |
+|------------|-----------|----------------|-------|-------|
+| **Servidor GPU** | Hetzner GEX44 | RTX 4000, 16GB VRAM | €180 | €2,160 |
+| **Almacenamiento** | Incluido | 100GB SSD | - | - |
+| **Backup** | Hetzner | 100GB adicional | €10 | €120 |
+| **Dominio** | - | .com/.es | - | €15 |
+| **SSL** | Let's Encrypt | Certificado | €0 | €0 |
+| **Ollama** | Local | qwen3:4b + bge-m3 | €0 | €0 |
+| **Qdrant** | Local | Docker | €0 | €0 |
+| **TOTAL** | | | **€190** | **€2,295** |
 
-```
-1 query embedding = ~20 tokens
-Coste OpenAI = $0.00002 × 20 / 1000 = $0.0000004 ≈ DESPRECIABLE
-```
+#### Alternativas de Servidor GPU
+
+| Proveedor | GPU | RAM | Coste/mes | Coste/año |
+|-----------|-----|-----|-----------|----------|
+| **Hetzner GEX44** | RTX 4000 | 64GB | €180 | €2,160 |
+| **Vast.ai** | RTX 4090 | 32GB | €200-300 | €2,400-3,600 |
+| **Lambda Labs** | A10 | 32GB | €350 | €4,200 |
+| **AWS g4dn.xlarge** | T4 | 16GB | €400 | €4,800 |
 
 ---
 
-## 🤖 Costes por Petición al Tutor
+## 📊 Comparativa: Self-Hosted vs APIs Externas
 
-### Desglose de una Petición Típica
+### Coste por 7.2M Consultas/Año
 
-```
-Usuario pregunta: "¿Qué es Python?"
+| Opción | Coste LLM | Infraestructura | **TOTAL ANUAL** |
+|--------|-----------|-----------------|------------------|
+| ✅ **Self-hosted GPU** | €0 | €2,300 | **€2,300** |
+| ❌ OpenAI GPT-4o-mini | €14,400 | €500 | **€14,900** |
+| ❌ OpenAI GPT-4o | €216,000 | €500 | **€216,500** |
+| ❌ Claude Sonnet | €108,000 | €500 | **€108,500** |
 
-1. Embedding de la pregunta
-   - Tokens: ~20
-   - Coste (OpenAI): ~€0.0000004
-   - Coste (Ollama): €0
-
-2. Búsqueda en Qdrant
-   - Operaciones: 1 query
-   - Coste (Cloud): ~€0.000001
-   - Coste (Self-hosted): €0
-
-3. Generación de respuesta (LLM)
-   - Input: ~2000 tokens (contexto + pregunta)
-   - Output: ~500 tokens (respuesta)
-   - Total: ~2500 tokens
-```
-
-### Comparativa de Modelos
-
-| Modelo | Input (1M tok) | Output (1M tok) | Coste/Petición |
-|--------|---------------|-----------------|----------------|
-| **Ollama qwen3:8b** | €0 | €0 | **€0.00** |
-| **OpenAI GPT-4o-mini** | $0.15 | $0.60 | **~€0.002** |
-| **OpenAI GPT-4o** | $2.50 | $10.00 | **~€0.03** |
-| **Claude 3.5 Haiku** | $0.25 | $1.25 | **~€0.004** |
-| **Claude 3.5 Sonnet** | $3.00 | $15.00 | **~€0.05** |
-
-### Cálculo Detallado (GPT-4o-mini)
+### Cálculo APIs (para referencia)
 
 ```
-Input: 2000 tokens × $0.15/1M = $0.0003
-Output: 500 tokens × $0.60/1M = $0.0003
-Total por petición: $0.0006 ≈ €0.0005
+Tokens por consulta: ~2,500 (2000 input + 500 output)
+Consultas anuales: 7,200,000
 
-+ Embedding: ~€0.0000004
-+ Qdrant: ~€0.000001
+OpenAI GPT-4o-mini:
+  Input:  7.2M × 2000 tokens × $0.15/1M = $2,160
+  Output: 7.2M × 500 tokens × $0.60/1M  = $2,160
+  Total: ~$4,320/año ≈ €4,000/año
+  + Embeddings: ~€500/año
+  + Servidor: ~€500/año
+  TOTAL: ~€5,000/año (MÍNIMO)
 
-TOTAL: ~€0.0005-0.001 por petición
+OpenAI GPT-4o:
+  Input:  7.2M × 2000 × $2.50/1M  = $36,000
+  Output: 7.2M × 500 × $10.00/1M  = $36,000
+  Total: ~$72,000/año ≈ €67,000/año
 ```
+
+### Ahorro Anual con Self-Hosted
+
+| vs | Ahorro | Factor |
+|----|--------|--------|
+| GPT-4o-mini | €12,600/año | **6.5x más barato** |
+| GPT-4o | €214,200/año | **94x más barato** |
+| Claude Sonnet | €106,200/año | **47x más barato** |
 
 ---
 
-## 📈 Proyecciones de Uso
+## ⚡ Rendimiento Esperado
 
-### Escenario: Centro Educativo Pequeño
+### Con GPU (RTX 4000/4090)
 
-```
-- 100 estudiantes
-- 5 preguntas/estudiante/día
-- 20 días lectivos/mes
+| Métrica | Valor |
+|---------|-------|
+| Tiempo de respuesta | 2-5 segundos |
+| Consultas simultáneas | 20-40 |
+| Throughput máximo | ~100 consultas/minuto |
+| Disponibilidad | 99.9% |
 
-Peticiones mensuales: 100 × 5 × 20 = 10,000 peticiones
-```
+### Sin GPU (Solo CPU)
 
-| Opción | Coste LLM | Infra | **Total Mensual** |
-|--------|-----------|-------|-------------------|
-| Ollama (self-hosted) | €0 | €50-100 | **~€50-100** |
-| GPT-4o-mini | €5-10 | €25 | **~€30-35** |
-| GPT-4o | €300 | €25 | **~€325** |
+| Métrica | Valor |
+|---------|-------|
+| Tiempo de respuesta | 30-60 segundos |
+| Consultas simultáneas | 2-5 |
+| Throughput máximo | ~5 consultas/minuto |
 
-### Escenario: Centro Educativo Grande
-
-```
-- 1000 estudiantes
-- 10 preguntas/estudiante/día
-- 20 días lectivos/mes
-
-Peticiones mensuales: 1000 × 10 × 20 = 200,000 peticiones
-```
-
-| Opción | Coste LLM | Infra | **Total Mensual** |
-|--------|-----------|-------|-------------------|
-| Ollama (GPU) | €0 | €300-400 | **~€300-400** |
-| GPT-4o-mini | €100-200 | €100 | **~€200-300** |
-| GPT-4o | €6000 | €100 | **~€6100** |
+⚠️ **Sin GPU NO es viable para 2,000 alumnos**
 
 ---
 
-## 💡 Recomendaciones
+## 📈 Escalabilidad
 
-### Para Desarrollo/Pruebas
+### Capacidad por Tipo de Servidor
 
-```
-✅ Ollama local (qwen3:8b + bge-m3)
-✅ Qdrant local (Docker)
-💰 Coste: €0 (solo electricidad)
-```
+| Alumnos | Consultas/día | Servidor Recomendado | Coste/año |
+|---------|---------------|----------------------|-----------|
+| <100 | <2,000 | VPS sin GPU | ~€600 |
+| 100-500 | 2,000-10,000 | GPU básica (T4) | ~€2,000 |
+| 500-2,000 | 10,000-40,000 | GPU media (RTX 4000) | ~€2,300 |
+| 2,000-5,000 | 40,000-100,000 | GPU alta (A10) | ~€4,200 |
+| >5,000 | >100,000 | Múltiples servidores | ~€6,000+ |
 
-### Para Producción Pequeña (<50 usuarios)
-
-```
-✅ Servidor VPS sin GPU (Hetzner CPX41)
-✅ Ollama con modelo pequeño (qwen3:4b)
-✅ Qdrant local
-💰 Coste: ~€30-50/mes
-⏱️ Latencia: 20-40s por respuesta
-```
-
-### Para Producción Media (50-500 usuarios)
+### Escalar Horizontalmente (Si Fuera Necesario)
 
 ```
-✅ Servidor con GPU (Vast.ai RTX 4090)
-✅ Ollama qwen3:8b
-✅ Qdrant Cloud Starter
-💰 Coste: ~€150-250/mes
-⏱️ Latencia: 2-5s por respuesta
-```
+Si superamos 5,000 alumnos o 100,000 consultas/día:
 
-### Para Producción Grande (>500 usuarios)
-
-**Opción A: Full Cloud (Escalable)**
-```
-✅ OpenAI GPT-4o-mini
-✅ Qdrant Cloud
-✅ Backend en Cloud Run/Lambda
-💰 Coste: Variable (~€0.001/petición)
-⏱️ Latencia: 1-3s por respuesta
-```
-
-**Opción B: Híbrido (Control + Escalabilidad)**
-```
-✅ Servidor propio con GPU para carga base
-✅ OpenAI como fallback para picos
-✅ Qdrant Cloud para HA
-💰 Coste: ~€300-500/mes base + variable
+1. Añadir segundo servidor Ollama (load balancer)
+2. Qdrant en modo cluster
+3. Coste adicional: ~€2,000/año por servidor
 ```
 
 ---
 
-## 📉 Optimización de Costes
+## 🔧 Optimizaciones Implementadas
 
-### 1. Reducir tokens de contexto
+Ya aplicadas para minimizar costes:
 
-```python
-# Actual: 6 chunks × 500 tokens = 3000 tokens
-RETRIEVER_K = 6
-CHUNK_SIZE = 500
-
-# Optimizado: 4 chunks × 400 tokens = 1600 tokens
-RETRIEVER_K = 4
-CHUNK_SIZE = 400
-
-# Ahorro: ~47% en costes de LLM
-```
-
-### 2. Caché de respuestas frecuentes
-
-```python
-# Implementar Redis para cachear preguntas comunes
-# Ahorro estimado: 20-40% de peticiones
-```
-
-### 3. Rate limiting por usuario
-
-```python
-# Limitar a 20 preguntas/usuario/día
-# Previene abuso y controla costes
-```
-
-### 4. Modelo más pequeño para preguntas simples
-
-```python
-# Clasificar complejidad de pregunta
-# Simple → qwen3:4b (más rápido, menos recursos)
-# Compleja → qwen3:8b (más preciso)
-```
+| Optimización | Impacto |
+|--------------|--------|
+| Modelo `qwen3:4b` (vs 8b) | -50% memoria, +30% velocidad |
+| `chunk_size=1000` | -20% chunks a procesar |
+| `retriever_k=4` (vs 6) | -33% contexto en prompt |
+| `llm_max_tokens=2048` | Límite respuestas largas |
+| Sin autenticación | -100% coste auth service |
+| Sin Redis | -€20/mes |
+| Sin PostgreSQL | -€30/mes |
 
 ---
 
-## 📊 Métricas de Seguimiento
+## 📋 Resumen Final
 
-Para controlar costes, monitorizar:
+### Para IT: Números Clave
 
 ```
-- Peticiones/día por usuario
-- Tokens promedio por petición
-- Tiempo de respuesta (latencia)
-- Tasa de caché hits
-- Errores/timeouts
+┌────────────────────────────────────────────────────┐
+│  ESCENARIO: 2,000 alumnos × 20 consultas × 1 año   │
+├────────────────────────────────────────────────────┤
+│  Consultas totales:    7,200,000/año               │
+│  Coste infraestructura: €2,300/año                 │
+│  Coste APIs externas:   €0/año                     │
+│  ─────────────────────────────────                 │
+│  COSTE TOTAL:          €2,300/año                  │
+│  COSTE POR ALUMNO:     €1.15/año                   │
+│  COSTE POR CONSULTA:   €0.00032                    │
+└────────────────────────────────────────────────────┘
 ```
 
-### Dashboard Recomendado
+### Comparativa con Alternativas Comerciales
 
-```bash
-# Prometheus + Grafana
-# Métricas a exportar:
-- booktutor_requests_total
-- booktutor_tokens_used
-- booktutor_response_time_seconds
-- booktutor_cache_hits_total
-```
+| Solución | Coste/alumno/año | Coste 2,000 alumnos |
+|----------|------------------|---------------------|
+| **BookTutor** | €1.15 | €2,300 |
+| ChatGPT Team | €264 | €528,000 |
+| Copilot | €228 | €456,000 |
+| Khanmigo (Khan Academy) | €44 | €88,000 |
+
+### Decisión
+
+✅ **Self-hosted con GPU es la opción óptima**:
+- Coste fijo predecible (€190/mes)
+- Sin dependencia de APIs externas
+- Datos 100% privados (GDPR compliant)
+- Escalable añadiendo servidores
+- ROI inmediato vs alternativas comerciales
 
 ---
 
-## 🔄 Actualización de Precios
+## 📞 Contacto
 
-Los precios de APIs de LLM cambian frecuentemente. Última actualización: **Febrero 2024**
-
-Fuentes oficiales:
-- [OpenAI Pricing](https://openai.com/pricing)
-- [Anthropic Pricing](https://www.anthropic.com/pricing)
-- [Qdrant Pricing](https://qdrant.tech/pricing/)
-
----
-
-## 📝 Conclusión
-
-| Uso | Recomendación | Coste Estimado |
-|-----|---------------|----------------|
-| Desarrollo | Ollama local | €0 |
-| Piloto (<50 usuarios) | VPS básico + Ollama | €30-50/mes |
-| Producción media | GPU cloud + Ollama | €150-300/mes |
-| Producción grande | Híbrido o full cloud | €300-1000/mes |
-
-**Para un centro educativo típico (100-500 estudiantes), el coste estimado es de €100-300/mes**, significativamente menor que soluciones comerciales equivalentes.
+Para dudas sobre costes o dimensionamiento:
+- **Equipo**: FP Prometeo
+- **Email**: soporte@fpprometeo.com

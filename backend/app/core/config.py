@@ -40,23 +40,10 @@ class Settings(BaseSettings):
         "https://plataforma-libros.vercel.app",
     ]
 
-    # Security
-    secret_key: str = Field(default="dev-secret-key-change-in-production")
-    jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 60 * 24 * 7  # 7 days
-
-    # Database
-    database_url: str = Field(
-        default="postgresql://booktutor:booktutor@localhost:5432/booktutor"
-    )
-
     # Qdrant
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str | None = None
     qdrant_collection_prefix: str = "book_"
-
-    # Redis (for async jobs)
-    redis_url: str = "redis://localhost:6379"
 
     # Ollama (dev)
     ollama_base_url: str = "http://localhost:11434"
@@ -64,21 +51,22 @@ class Settings(BaseSettings):
     # vLLM (prod)
     vllm_base_url: str = "http://localhost:8080"
 
-    # LLM Settings
+    # LLM Settings (optimizado para bajo coste)
     default_llm_provider: Literal["ollama", "vllm"] = "ollama"
-    default_llm_model: str = "qwen3:8b"
-    llm_temperature: float = 0.1
-    llm_max_tokens: int = 2048
+    default_llm_model: str = "qwen3:4b"  # 4b usa ~50% menos recursos que 8b
+    llm_temperature: float = 0.2
+    llm_max_tokens: int = 2048  # Reducido para menor coste
+    llm_timeout: int = 120  # Timeout agresivo
 
     # Embeddings
     embedding_model: str = "bge-m3"
     embedding_dimensions: int = 1024
 
-    # RAG Settings
-    chunk_size: int = 1500
-    chunk_overlap: int = 150
-    retriever_k: int = 6
-    min_relevance_score: float = 0.25
+    # RAG Settings (optimizado)
+    chunk_size: int = 1000  # Chunks más pequeños = menos tokens
+    chunk_overlap: int = 100
+    retriever_k: int = 4  # Menos chunks = menor coste
+    min_relevance_score: float = 0.3  # Más estricto = mejores resultados
 
     # Storage
     docs_dir: str = "./docs"

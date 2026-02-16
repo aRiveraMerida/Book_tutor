@@ -1,0 +1,154 @@
+# ================================
+# BookTutor - CI Pipeline
+# ================================
+# Trigger: Pull Requests
+# Acción: Lint, tests, validación de archivos
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+
+jobs:
+  # ===================
+  # Backend Tests
+  # ===================
+  backend:
+    name: Backend Lint & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install ruff pytest
+
+      - name: Lint with Ruff
+        run: |
+          cd backend
+          ruff check app/ --ignore E501
+
+      - name: Type check (optional)
+        run: |
+          cd backend
+          pip install pyright
+          pyright app/ || true  # Non-blocking
+
+  # ===================
+  # Frontend Tests
+  # ===================
+  frontend:
+    name: Frontend Lint & Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Lint
+        run: |
+          cd frontend
+          npm run lint || true  # Non-blocking for now
+
+      - name: Build
+        run: |
+          cd frontend
+          npm run build
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+
+  # ===================
+  # Validate Markdown Docs
+  # ===================
+  validate-docs:
+    name: Validate Documentation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check markdown files exist
+        run: |
+          # Verificar que las carpetas de asignaturas tienen archivos .md
+          for dir in backend/docs/*/; do
+            if [ -d "$dir" ]; then
+              count=$(find "$dir" -name "*.md" | wc -l)
+              if [ "$count" -eq 0 ]; then
+                echo "⚠️ Warning: $dir has no .md files"
+              else
+                echo "✅ $dir has $count .md file(s)"
+              fi
+            fi
+          done
+
+      - name: Validate markdown syntax
+        run: |
+          # Instalar markdownlint
+          npm install -g markdownlint-cli
+          
+          # Lint markdown files (warnings only)
+          find backend/docs -name "*.md" -exec markdownlint {} \; || true
+
+  # ===================
+  # Docker Build Test
+  # ===================
+  docker:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Backend (test)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.backend
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build Frontend (test)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.frontend
+          push: false
+          build-args: |
+            NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

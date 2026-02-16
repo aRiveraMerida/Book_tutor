@@ -1,177 +1,129 @@
-# BookTutor - Production Docker Compose
-# Usage: docker-compose -f docker-compose.prod.yml up -d
-
-version: '3.8'
+# ================================
+# BookTutor - Production
+# ================================
+# Usage: docker compose -f docker-compose.prod.yml up -d
+#
+# CI/CD: Este archivo se usa para despliegue automático.
+# Cuando se hace push a main con cambios en backend/docs/,
+# GitHub Actions construye y despliega automáticamente.
 
 services:
   # ===================
-  # Backend API
+  # Qdrant (Vector Store)
+  # ===================
+  qdrant:
+    image: qdrant/qdrant:v1.7.4
+    container_name: booktutor-qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/readyz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    networks:
+      - booktutor
+
+  # ===================
+  # Ollama (LLM) - Opcional, puede correr en host
+  # ===================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: booktutor-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+    networks:
+      - booktutor
+    # Después del primer inicio, descargar modelos:
+    # docker exec booktutor-ollama ollama pull qwen3:4b
+    # docker exec booktutor-ollama ollama pull bge-m3
+
+  # ===================
+  # Backend (FastAPI)
   # ===================
   backend:
+    image: ghcr.io/${GITHUB_REPOSITORY:-booktutor}/backend:${VERSION:-latest}
     build:
       context: .
       dockerfile: docker/Dockerfile.backend
     container_name: booktutor-backend
-    restart: unless-stopped
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "8000:8000"
     environment:
       - ENVIRONMENT=prod
       - DEBUG=false
-      - SECRET_KEY=${SECRET_KEY:?Secret key is required}
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-booktutor}:${POSTGRES_PASSWORD:-booktutor}@postgres:5432/${POSTGRES_DB:-booktutor}
       - QDRANT_URL=http://qdrant:6333
-      - REDIS_URL=redis://redis:6379
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      - DEFAULT_LLM_MODEL=${DEFAULT_LLM_MODEL:-qwen3:8b}
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - DOCS_DIR=/app/docs
+      # Configuración optimizada para bajo coste
+      - DEFAULT_LLM_MODEL=qwen3:4b
+      - LLM_MAX_TOKENS=2048
+      - LLM_TEMPERATURE=0.2
+      - CHUNK_SIZE=1000
+      - RETRIEVER_K=4
       - CORS_ORIGINS=["http://localhost:3000","https://${DOMAIN:-localhost}"]
     volumes:
-      - docs_data:/app/docs
-      - uploads_data:/app/uploads
+      - ./backend/docs:/app/docs:ro
     depends_on:
-      postgres:
-        condition: service_healthy
       qdrant:
         condition: service_healthy
-      redis:
-        condition: service_healthy
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     networks:
-      - booktutor-network
+      - booktutor
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
 
   # ===================
-  # Frontend
+  # Frontend (Next.js)
   # ===================
   frontend:
+    image: ghcr.io/${GITHUB_REPOSITORY:-booktutor}/frontend:${VERSION:-latest}
     build:
       context: .
       dockerfile: docker/Dockerfile.frontend
       args:
-        - NEXT_PUBLIC_API_URL=http://${DOMAIN:-localhost}:${API_PORT:-8000}/api/v1
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
     container_name: booktutor-frontend
-    restart: unless-stopped
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
-    environment:
-      - NODE_ENV=production
-      - BACKEND_URL=http://backend:8000/api/v1
+      - "3000:3000"
     depends_on:
-      backend:
-        condition: service_healthy
-    networks:
-      - booktutor-network
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
-
-  # ===================
-  # PostgreSQL Database
-  # ===================
-  postgres:
-    image: postgres:16-alpine
-    container_name: booktutor-postgres
-    restart: unless-stopped
-    environment:
-      - POSTGRES_USER=${POSTGRES_USER:-booktutor}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-booktutor}
-      - POSTGRES_DB=${POSTGRES_DB:-booktutor}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - booktutor-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-booktutor}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # ===================
-  # Qdrant Vector Database
-  # ===================
-  qdrant:
-    image: qdrant/qdrant:latest
-    container_name: booktutor-qdrant
-    restart: unless-stopped
-    ports:
-      - "${QDRANT_PORT:-6333}:6333"
-    environment:
-      - QDRANT__SERVICE__GRPC_PORT=6334
-    volumes:
-      - qdrant_data:/qdrant/storage
-    networks:
-      - booktutor-network
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:6333/readyz"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # ===================
-  # Redis Cache
-  # ===================
-  redis:
-    image: redis:7-alpine
-    container_name: booktutor-redis
-    restart: unless-stopped
-    command: redis-server --appendonly yes
-    volumes:
-      - redis_data:/data
-    networks:
-      - booktutor-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # ===================
-  # Nginx Reverse Proxy (Optional)
-  # ===================
-  nginx:
-    image: nginx:alpine
-    container_name: booktutor-nginx
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./docker/ssl:/etc/nginx/ssl:ro
-    depends_on:
-      - frontend
       - backend
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 256M
     networks:
-      - booktutor-network
-    profiles:
-      - with-nginx
+      - booktutor
 
-# ===================
-# Volumes
-# ===================
 volumes:
-  postgres_data:
-    name: booktutor-postgres-data
   qdrant_data:
     name: booktutor-qdrant-data
-  redis_data:
-    name: booktutor-redis-data
-  docs_data:
-    name: booktutor-docs-data
-  uploads_data:
-    name: booktutor-uploads-data
+  ollama_data:
+    name: booktutor-ollama-data
 
-# ===================
-# Networks
-# ===================
 networks:
-  booktutor-network:
+  booktutor:
     name: booktutor-network
     driver: bridge

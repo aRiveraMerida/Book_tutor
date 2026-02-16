@@ -26,6 +26,21 @@ export function FloatingChat({ slug, title }: FloatingChatProps) {
     clearMessages,
   } = useChat({ slug, useStreaming: false });
 
+  // Limpiar historial cuando se abre o cierra el chat
+  useEffect(() => {
+    if (isOpen) {
+      // Limpiar al abrir
+      clearMessages();
+    }
+  }, [isOpen]); // Solo cuando cambia isOpen
+
+  // Limpiar al cerrar
+  const handleClose = () => {
+    clearMessages();
+    setIsOpen(false);
+    setIsExpanded(false);
+  };
+
   // Handle keyboard shortcut
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -34,7 +49,7 @@ export function FloatingChat({ slug, title }: FloatingChatProps) {
         setIsOpen(prev => !prev);
       }
       if (e.key === 'Escape' && isOpen) {
-        setIsOpen(false);
+        handleClose();
       }
     };
 
@@ -155,7 +170,7 @@ export function FloatingChat({ slug, title }: FloatingChatProps) {
                   {isExpanded ? '⊙' : '⤢'}
                 </button>
                 <button
-                  onClick={() => setIsOpen(false)}
+                  onClick={handleClose}
                   className={styles.actionButton}
                   title="Cerrar (Esc)"
                 >
@@ -166,7 +181,11 @@ export function FloatingChat({ slug, title }: FloatingChatProps) {
 
             {/* Messages */}
             <div className={styles.messagesArea}>
-              <MessageList messages={messages} isLoading={isLoading} />
+              <MessageList 
+                messages={messages} 
+                isLoading={isLoading} 
+                onSendMessage={sendMessage}
+              />
             </div>
 
             {/* Error */}

@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Message } from '@/hooks/useChat';
 import { SourceCard } from './SourceCard';
 import styles from './Chat.module.css';
@@ -8,37 +10,50 @@ import styles from './Chat.module.css';
 interface MessageListProps {
   messages: Message[];
   isLoading: boolean;
+  onSendMessage?: (message: string) => void;
 }
 
-export function MessageList({ messages, isLoading }: MessageListProps) {
+const SUGGESTIONS = [
+  '¿De qué trata esta asignatura?',
+  'Explícame los conceptos clave',
+  'Dame un ejemplo práctico',
+  'Hazme un resumen',
+];
+
+export function MessageList({ messages, isLoading, onSendMessage }: MessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  const handleSuggestionClick = (suggestion: string) => {
+    if (onSendMessage && !isLoading) {
+      onSendMessage(suggestion);
+    }
+  };
+
   if (messages.length === 0) {
     return (
       <div className={styles.emptyState}>
-        <div className={styles.emptyIcon}>💬</div>
+        <div className={styles.emptyIcon}>🤖</div>
         <p className={styles.emptyText}>
-          ¡Hola! Soy tu tutor virtual.
+          ¡Hola! Soy tu tutor IA
         </p>
         <p className={styles.emptySubtext}>
-          Pregúntame cualquier cosa sobre el contenido de este documento.
+          Pregúntame sobre el contenido de esta asignatura
         </p>
         <div className={styles.suggestionList}>
-          <span className={styles.suggestionLabel}>Sugerencias:</span>
-          <button className={styles.suggestion}>
-            ¿De qué trata este tema?
-          </button>
-          <button className={styles.suggestion}>
-            Explícame los conceptos clave
-          </button>
-          <button className={styles.suggestion}>
-            Dame un ejemplo práctico
-          </button>
+          {SUGGESTIONS.map((suggestion, idx) => (
+            <button
+              key={idx}
+              className={styles.suggestion}
+              onClick={() => handleSuggestionClick(suggestion)}
+              disabled={isLoading}
+            >
+              {suggestion}
+            </button>
+          ))}
         </div>
       </div>
     );
@@ -58,7 +73,17 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
           </div>
           <div className={styles.messageContent}>
             <div className={styles.messageText}>
-              {message.content || (
+              {message.content ? (
+                message.role === 'assistant' ? (
+                  <div className={styles.markdown}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {message.content}
+                    </ReactMarkdown>
+                  </div>
+                ) : (
+                  message.content
+                )
+              ) : (
                 <span className={styles.typingIndicator}>
                   <span></span>
                   <span></span>
@@ -70,12 +95,11 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
               )}
             </div>
             
-            {/* Sources */}
             {message.sources && message.sources.length > 0 && (
               <div className={styles.sourcesContainer}>
                 <details className={styles.sourcesDetails}>
                   <summary className={styles.sourcesSummary}>
-                    📚 {message.sources.length} fuente(s) consultada(s)
+                    📚 {message.sources.length} fuente(s)
                   </summary>
                   <div className={styles.sourcesList}>
                     {message.sources.map((source, idx) => (

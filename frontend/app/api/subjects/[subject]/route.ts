@@ -33,47 +33,35 @@ function getLocalFiles(subject: string) {
 }
 
 export async function GET(
-  request: Request,
+  _request: Request,
   { params }: { params: Promise<{ subject: string }> }
 ) {
   const { subject } = await params;
 
-  // Get token from header or query param
-  const authHeader = request.headers.get('authorization');
-  let token = authHeader?.replace('Bearer ', '');
-
-  if (!token) {
-    const url = new URL(request.url);
-    token = url.searchParams.get('token') || '';
-  }
-
   // Try backend first
-  if (token) {
-    try {
-      const response = await fetch(`${BACKEND_URL}/asignaturas/${subject}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        cache: 'no-store',
-      });
+  try {
+    const response = await fetch(`${BACKEND_URL}/asignaturas/${subject}`, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store',
+    });
 
-      if (response.ok) {
-        const data = await response.json();
-        // Map backend response - documents is list of filenames
-        const files = (data.documents || []).map((filename: string) => {
-          const id = filename.replace('.md', '');
-          return {
-            id,
-            filename,
-            title: id.replace(/-/g, ' ').replace(/_/g, ' '),
-          };
-        });
-        return NextResponse.json(files);
-      }
-    } catch (error) {
-      console.log('Backend not available for subject, using local files');
+    if (response.ok) {
+      const data = await response.json();
+      // Map backend response - documents is list of filenames
+      const files = (data.documents || []).map((filename: string) => {
+        const id = filename.replace('.md', '');
+        return {
+          id,
+          filename,
+          title: id.replace(/-/g, ' ').replace(/_/g, ' '),
+        };
+      });
+      return NextResponse.json(files);
     }
+  } catch {
+    console.log('Backend not available for subject, using local files');
   }
 
   // Fallback to local files
